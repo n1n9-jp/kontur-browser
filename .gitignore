@@ -1,0 +1,9 @@
+node_modules/
+.DS_Store
+.venv/
+*.gpkg
+api_key.txt
+.env
+dist/
+.idea/
+.vscode/

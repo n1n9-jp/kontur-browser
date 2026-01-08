@@ -1,11 +1,8 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import { Map } from 'react-map-gl/maplibre';
+import React, { useState, useCallback, useEffect } from 'react';
+import { Map, Source, Layer } from 'react-map-gl/maplibre';
 import DeckGL from '@deck.gl/react';
 import { MapView } from '@deck.gl/core';
-import { H3HexagonLayer } from '@deck.gl/geo-layers';
-import { ParquetLoader } from '@loaders.gl/parquet';
-import { colorContinuous } from '@deck.gl/carto';
-import debounce from 'lodash.debounce';
+import { Protocol, PMTiles } from 'pmtiles';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -13,12 +10,31 @@ import {
   INITIAL_VIEW_STATE,
   MAP_VIEW_SETTINGS,
   lightingEffect,
-  MATERIAL_SETTINGS,
-  RESOLUTION_SETTINGS,
-  getResolutionForZoom,
   COLOR_SCALE_TYPE,
-  HEXAGON_COVERAGE
+  RESOLUTION_SETTINGS
 } from './config';
+
+// Register the PMTiles protocol
+let protocol = new Protocol();
+maplibregl.addProtocol("pmtiles", (request) => {
+  return new Promise((resolve, reject) => {
+    const callback = (err, data) => {
+      if (err) {
+        console.error("PMTiles Protocol Error:", err);
+        reject(err);
+      } else {
+        resolve({ data });
+      }
+    };
+    protocol.tile(request, callback);
+  });
+});
+const PMTILES_URL = window.location.origin + '/data/jp.pmtiles'; // Absolute URL
+
+// Helper to convert array color to hex string or rgb string for MapLibre
+const toRgb = (color) => {
+  return `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+};
 
 const getParamsFromUrl = () => {
   const params = new URLSearchParams(window.location.search);
@@ -31,7 +47,7 @@ const getParamsFromUrl = () => {
   };
 };
 
-const updateUrl = debounce((viewState) => {
+const updateUrl = (viewState) => {
   const params = new URLSearchParams();
   params.set('lng', viewState.longitude.toFixed(4));
   params.set('lat', viewState.latitude.toFixed(4));
@@ -41,7 +57,7 @@ const updateUrl = debounce((viewState) => {
 
   const newUrl = `${window.location.pathname}?${params.toString()}`;
   window.history.replaceState(null, '', newUrl);
-}, 500);
+};
 
 export default function App() {
   const [viewState, setViewState] = useState(getParamsFromUrl());
@@ -51,67 +67,70 @@ export default function App() {
     updateUrl(viewState);
   }, []);
 
-  const { dataUrl, resolution, elevationScale, colorMaxVal } = useMemo(() => {
-    const z = viewState.zoom;
-    const res = getResolutionForZoom(z);
+  // Define zoom ranges for each resolution based on config logic
+  // Res 4: z < 5 (minzoom: 0, maxzoom: 5)
+  // Res 5: 5 <= z < 6 (minzoom: 5, maxzoom: 6)
+  // Res 6: 6 <= z < 7 (minzoom: 6, maxzoom: 7)
+  // Res 7: 7 <= z (minzoom: 7, maxzoom: 24)
+  const layerConfigs = [
+    { res: 4, minzoom: 0, maxzoom: 5 },
+    { res: 5, minzoom: 5, maxzoom: 6 },
+    { res: 6, minzoom: 6, maxzoom: 7 },
+    { res: 7, minzoom: 7, maxzoom: 24 }
+  ];
+
+  const layers = layerConfigs.map(config => {
+    const res = config.res;
     const settings = RESOLUTION_SETTINGS[res];
 
-    return {
-      dataUrl: settings.dataUrl,
-      resolution: res,
-      elevationScale: settings.elevationScale,
-      colorMaxVal: settings.colorMaxVal
-    };
-  }, [Math.floor(viewState.zoom)]);
+    // Calculate expressions for this specific resolution
+    const heightExpression = [
+      '*',
+      ['to-number', ['get', 'population']],
+      settings.elevationScale
+    ];
 
-  const layers = [
-    new H3HexagonLayer({
-      id: `h3-layer-${resolution}`,
-      data: dataUrl,
-      loaders: [ParquetLoader],
+    const maxVal = settings.colorMaxVal;
+    const normalizedValue = ['/', ['to-number', ['get', 'population']], maxVal];
 
-      pickable: true,
-      wireframe: false,
-      filled: true,
-      extruded: true,
-      coverage: HEXAGON_COVERAGE,
+    const colorStops = COLOR_SCALE_TYPE.flatMap((c, i) => [
+      i / (COLOR_SCALE_TYPE.length - 1),
+      toRgb(c)
+    ]);
 
-      material: MATERIAL_SETTINGS,
+    const colorExpression = [
+      'interpolate',
+      ['linear'],
+      normalizedValue,
+      ...colorStops
+    ];
 
-      getHexagon: d => d.h3_index,
-
-      getElevation: d => Number(d.value),
-
-      getFillColor: d => {
-        const val = Number(d.value);
-        // colorContinuousに配列を渡しても動作しないため、手動でマッピングする
-        // Configで定義された青色グラデーション配列を使用
-        const colors = COLOR_SCALE_TYPE;
-        const ratio = Math.min(val / colorMaxVal, 1.0);
-
-        // 配列のインデックスにマッピング
-        const index = Math.floor(ratio * (colors.length - 1));
-
-        // 安全策: indexが範囲外にならないように
-        const safeIndex = Math.max(0, Math.min(index, colors.length - 1));
-
-        return colors[safeIndex];
-      },
-
-      elevationScale: elevationScale,
-
-      transitions: {
-        getFillColor: 1000,
-        getElevation: 1000
-      }
-    })
-  ];
+    return (
+      <Layer
+        key={`h3-layer-${res}`}
+        id={`h3-hexagons-${res}`}
+        type="fill-extrusion"
+        source="pmtiles-source"
+        source-layer="combined_for_tiles"
+        filter={['==', ['get', 'resolution'], res]}
+        minzoom={config.minzoom}
+        maxzoom={config.maxzoom}
+        paint={{
+          'fill-extrusion-color': colorExpression,
+          'fill-extrusion-height': heightExpression,
+          'fill-extrusion-opacity': 0.9,
+          'fill-extrusion-base': 0
+        }}
+      />
+    );
+  });
 
   return (
     <DeckGL
       viewState={viewState}
       onViewStateChange={handleViewStateChange}
-      layers={layers}
+      // Removing DeckGL layers, using MapLibre Source/Layer instead
+      layers={[]}
       effects={[lightingEffect]}
       style={{ width: '100vw', height: '100vh' }}
       views={new MapView({
@@ -119,19 +138,21 @@ export default function App() {
         controller: true,
         ...MAP_VIEW_SETTINGS
       })}
-      getTooltip={({ object }) => object && {
-        html: `<div style="padding: 4px; color: white;"><b>Population:</b> ${object.value}</div>`,
-        style: {
-          backgroundColor: '#333',
-          fontSize: '0.8em',
-          borderRadius: '4px'
-        }
-      }}
     >
       <Map
         mapLib={maplibregl}
         mapStyle="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
-      />
+        reuseMaps
+      >
+        <Source
+          id="pmtiles-source"
+          type="vector"
+          url={`pmtiles://${PMTILES_URL}`}
+          attribution="Kontur Population"
+        >
+          {layers}
+        </Source>
+      </Map>
     </DeckGL>
   );
 }

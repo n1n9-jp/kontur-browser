@@ -16,4 +16,5 @@ export default defineConfig({
       protocolImports: true,
     }),
   ],
+  assetsInclude: ['**/*.pmtiles'],
 })

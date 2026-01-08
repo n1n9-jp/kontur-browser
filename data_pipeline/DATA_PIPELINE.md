@@ -14,6 +14,30 @@
 
 ---
 
+## Python環境のセットアップ
+
+データ処理スクリプトを実行するために、Python仮想環境を作成し、必要なライブラリをインストールします。
+
+1.  **仮想環境の作成**:
+    ```bash
+    cd data_pipeline
+    pyenv local 3.11.9
+    python -m venv .venv
+    ```
+
+2.  **仮想環境の有効化**:
+    ```bash
+    source .venv/bin/activate
+    ```
+
+3.  **依存ライブラリのインストール**:
+    必要なライブラリ：`geopandas`, `pandas`, `h3`, `pyarrow`
+    ```bash
+    pip install geopandas pandas h3 pyarrow
+    ```
+
+---
+
 ## 詳細ステップ
 
 ### Step 1: GeoPackage から Parquet への変換・集計
@@ -36,7 +60,7 @@
 この段階で、H3インデックスからポリゴン（または点）ジオメトリへの変換が行われます。
 
 *   **Script**: `scripts/prepare_geojson.py`
-*   **Command**: `python scripts/prepare_geojson.py`
+*   **Command**: `python scripts/prepare_geojson.py --country global`
 *   **Input**: `data/output/jp/pop_res_*.parquet`
 *   **Output**: `data/output/jp/combined_for_tiles.geojson`
 
@@ -54,6 +78,17 @@ Tippecanoeを使用して、GeoJSONをベクトルタイルアーカイブ（PMT
       --drop-densest-as-needed \
       -zg \
       data/output/jp/combined_for_tiles.geojson
+    ```
+
+    ```bash
+    tippecanoe --force -o data/output/global.pmtiles \
+      -l combined_for_tiles \
+      --no-tile-compression \
+      --no-feature-limit \
+      --no-tile-size-limit \
+      --drop-densest-as-needed \
+      -zg \
+      data/output/global/combined_for_tiles.geojson
     ```
 *   **Input**: `data/output/jp/combined_for_tiles.geojson`
 *   **Output**: `data/output/jp.pmtiles`

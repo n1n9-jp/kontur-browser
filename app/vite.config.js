@@ -17,4 +17,16 @@ export default defineConfig({
     }),
   ],
   assetsInclude: ['**/*.pmtiles'],
+  base: '/kontur-browser/', // GitHub Pagesのリポジトリ名に合わせて設定
+  build: {
+    outDir: '../docs', // プロジェクトルートのdocsフォルダに出力
+    emptyOutDir: true,
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
+      },
+    },
+  },
 })

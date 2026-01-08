@@ -29,7 +29,11 @@ maplibregl.addProtocol("pmtiles", (request) => {
     protocol.tile(request, callback);
   });
 });
-const PMTILES_URL = window.location.origin + '/data/jp.pmtiles'; // Absolute URL
+const R2_BASE_URL = 'https://31ef252e99284bd5a7631e508960c89f.r2.cloudflarestorage.com/kontur-browser';
+const DATASET = 'global'; // Options: 'global' | 'jp'
+const PMTILES_URL = import.meta.env.PROD
+  ? `${R2_BASE_URL}/${DATASET}.pmtiles`
+  : window.location.origin + `/data/${DATASET}.pmtiles`;
 
 // Helper to convert array color to hex string or rgb string for MapLibre
 const toRgb = (color) => {

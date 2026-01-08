@@ -29,7 +29,7 @@ maplibregl.addProtocol("pmtiles", (request) => {
     protocol.tile(request, callback);
   });
 });
-const R2_BASE_URL = 'https://31ef252e99284bd5a7631e508960c89f.r2.cloudflarestorage.com/kontur-browser';
+const R2_BASE_URL = 'https://pub-47797a0e31a54fe3b0a589cfaf3befcc.r2.dev';
 const DATASET = 'global'; // Options: 'global' | 'jp'
 const PMTILES_URL = import.meta.env.PROD
   ? `${R2_BASE_URL}/${DATASET}.pmtiles`

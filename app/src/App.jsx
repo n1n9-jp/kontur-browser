@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
+import './App.css';
 import { Map, Source, Layer } from 'react-map-gl/maplibre';
 import DeckGL from '@deck.gl/react';
 import { MapView } from '@deck.gl/core';
@@ -30,10 +31,14 @@ maplibregl.addProtocol("pmtiles", (request) => {
   });
 });
 const R2_BASE_URL = 'https://pub-47797a0e31a54fe3b0a589cfaf3befcc.r2.dev';
-const DATASET = 'global'; // Options: 'global' | 'jp'
-const PMTILES_URL = import.meta.env.PROD
-  ? `${R2_BASE_URL}/${DATASET}.pmtiles`
-  : window.location.origin + `/data/${DATASET}.pmtiles`;
+const DATASETS = [
+  { id: 'global', label: '世界全体' },
+  { id: 'jp', label: '日本のみ' }
+];
+const DEFAULT_DATASET = 'global';
+const getPmtilesUrl = (dataset) => import.meta.env.PROD
+  ? `${R2_BASE_URL}/${dataset}.pmtiles`
+  : window.location.origin + `/data/${dataset}.pmtiles`;
 
 // Helper to convert array color to hex string or rgb string for MapLibre
 const toRgb = (color) => {
@@ -51,8 +56,14 @@ const getParamsFromUrl = () => {
   };
 };
 
-const updateUrl = (viewState) => {
+const getDatasetFromUrl = () => {
+  const d = new URLSearchParams(window.location.search).get('d');
+  return DATASETS.some(ds => ds.id === d) ? d : DEFAULT_DATASET;
+};
+
+const updateUrl = (viewState, dataset) => {
   const params = new URLSearchParams();
+  params.set('d', dataset);
   params.set('lng', viewState.longitude.toFixed(4));
   params.set('lat', viewState.latitude.toFixed(4));
   params.set('z', viewState.zoom.toFixed(2));
@@ -65,11 +76,21 @@ const updateUrl = (viewState) => {
 
 export default function App() {
   const [viewState, setViewState] = useState(getParamsFromUrl());
+  const [dataset, setDataset] = useState(getDatasetFromUrl());
 
   const handleViewStateChange = useCallback(({ viewState }) => {
     setViewState(viewState);
-    updateUrl(viewState);
-  }, []);
+    updateUrl(viewState, dataset);
+  }, [dataset]);
+
+  const handleDatasetChange = useCallback((e) => {
+    const next = e.target.value;
+    // 日本のみに切り替えたときは、データのある日本へ視点を戻す
+    const nextViewState = next === 'jp' ? { ...INITIAL_VIEW_STATE } : viewState;
+    setDataset(next);
+    setViewState(nextViewState);
+    updateUrl(nextViewState, next);
+  }, [viewState]);
 
   // Define zoom ranges for each resolution based on config logic
   // Res 4: z < 5 (minzoom: 0, maxzoom: 5)
@@ -111,10 +132,10 @@ export default function App() {
 
     return (
       <Layer
-        key={`h3-layer-${res}`}
-        id={`h3-hexagons-${res}`}
+        key={`h3-layer-${dataset}-${res}`}
+        id={`h3-hexagons-${dataset}-${res}`}
         type="fill-extrusion"
-        source="pmtiles-source"
+        source={`pmtiles-source-${dataset}`}
         source-layer="combined_for_tiles"
         filter={['==', ['get', 'resolution'], res]}
         minzoom={config.minzoom}
@@ -130,6 +151,7 @@ export default function App() {
   });
 
   return (
+    <>
     <DeckGL
       viewState={viewState}
       onViewStateChange={handleViewStateChange}
@@ -149,14 +171,24 @@ export default function App() {
         reuseMaps
       >
         <Source
-          id="pmtiles-source"
+          key={dataset}
+          id={`pmtiles-source-${dataset}`}
           type="vector"
-          url={`pmtiles://${PMTILES_URL}`}
+          url={`pmtiles://${getPmtilesUrl(dataset)}`}
           attribution="Kontur Population"
         >
           {layers}
         </Source>
       </Map>
     </DeckGL>
+    <div className="dataset-control">
+      <label htmlFor="dataset-select">表示データ</label>
+      <select id="dataset-select" value={dataset} onChange={handleDatasetChange}>
+        {DATASETS.map(ds => (
+          <option key={ds.id} value={ds.id}>{ds.label}</option>
+        ))}
+      </select>
+    </div>
+    </>
   );
 }
